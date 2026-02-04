@@ -4,7 +4,7 @@ A minimal version of **[Tident](https://github.com/mahmoodlab/TRIDENT)**. This p
 
 ## Usage
 
-#### 1. Use `segment_slide.py` to process a single whole slide image:
+#### 1. Single slide: `segment_slide.py`
 
 **Command:**
 ```bash
@@ -34,7 +34,38 @@ python segment_slide.py \
 - `--overlap`: Overlap between patches in pixels
 - `--save_patches_type`: `tar`, `jpg`, or `none` (tar: WebDataset tar file, jpg: individual JPEG patches, none: no patches)
 
-#### 2. Use `list_segment_slide.py` to process a list of whole slide images:
+#### 2. Single slide + features: `segment_slide_and_extract_patch_features.py`
+
+**Command:**
+```bash
+python segment_slide_and_extract_patch_features.py \
+  --slide_path /path/to/slide.svs \
+  --job_dir /path/to/output \
+  --encoder uni_v2 \
+  --gpu 0 \
+  --mag 20 \
+  --patch_size 256 \
+  --overlap 0 \
+  --save_patches_type tar
+```
+
+#### 3. JSON list format
+
+**JSON Format:**
+```json
+[
+  {
+    "slide_path": "/path/to/slide1.svs",
+    "label": "optional_label"
+  },
+  {
+    "slide_path": "/path/to/slide2.svs",
+    "label": "optional_label"
+  }
+]
+```
+
+#### 4. List processing: `list_segment_slide.py`
 
 **Command:**
 ```bash
@@ -51,25 +82,25 @@ python list_segment_slide.py \
   --verbose
 ```
 
-A json file list of whole slide images should be like this:
+This script processes slides sequentially. It will skip a slide only if the coords HDF5 exists and the requested patch outputs are complete (tar exists, jpg count matches coords, or `none`).
 
-**JSON Format:**
-```json
-[
-  {
-    "slide_path": "/path/to/slide1.svs",
-    "label": "optional_label"
-  },
-  {
-    "slide_path": "/path/to/slide2.svs",
-    "label": "optional_label"
-  }
-]
+#### 5. List processing + features: `list_segment_slide_and_extract_patch_features.py`
+
+**Command:**
+```bash
+python list_segment_slide_and_extract_patch_features.py \
+  --list_json /path/to/slides.json \
+  --job_dir /path/to/output \
+  --encoder uni_v2 \
+  --gpu 0 \
+  --mag 20 \
+  --patch_size 256 \
+  --overlap 0 \
+  --save_patches_type tar \
+  --verbose
 ```
 
-This script processes slides sequentially. If a slide's visualization already exists, it will be skipped.
-
-#### 3. Parallel Processing with Tmux (`run_list_segment_tmux.sh`)
+#### 6. Parallel processing: `run_list_segment_tmux.sh`
 
 Use `run_list_segment_tmux.sh` to split a JSON list of slides into multiple parts and process them in parallel across different GPUs using tmux sessions:
 
@@ -88,21 +119,11 @@ save_patches_type=tar               # tar, jpg, or none
 bash run_list_segment_tmux.sh
 ```
 
-**How it works:**
-1. The script splits the JSON list into `splits` parts
-2. Each part is assigned to a tmux session running on a different GPU
-3. Each session runs `list_segment_slide.py` on its assigned part
-4. You can monitor progress with `tmux ls` and attach to sessions with `tmux attach -t session_name`
+#### 7. Parallel processing + features: `run_list_segment_and_extract_patch_features_tmux.sh`
 
-**Monitor tmux sessions:**
+Edit `run_list_segment_and_extract_patch_features_tmux.sh` with encoder settings, then run:
 ```bash
-# List all sessions
-tmux ls
-
-# Attach to a specific session
-tmux attach -t segment_0_gpu0
-
-# Detach from session: Press Ctrl+B, then D
+bash run_list_segment_and_extract_patch_features_tmux.sh
 ```
 
 ## Output Structure
@@ -124,8 +145,21 @@ job_dir/
     │   └── <slide_name>-000000.tar
     ├── patches_jpg/               # Individual JPEG patches (if --save_patches_type jpg)
     │   └── ...
+    ├── patch_features/            # Patch features (PTH)
+    │   └── <encoder>/<slide_name>.pth
     └── visualization/             # Patch coordinate visualizations
         └── <slide_name>.jpg
+```
+
+## Patch Features Format
+
+Patch features are stored as `.pth` files with:
+```python
+{
+  "feats": Tensor[N, D],
+  "coords": Tensor[N, 2],
+  "model_name": str
+}
 ```
 
 ## WebDataset Format

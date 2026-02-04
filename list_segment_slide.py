@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from glob import glob
 
 from tissue_segmentation import load_wsi, segmentation_model_factory
 from tissue_segmentation.io_utils import read_coords
@@ -69,10 +70,24 @@ def main():
             f"{args.mag}x_{args.patch_size}px_{args.overlap}px_overlap"
         )
         slide_name = os.path.splitext(os.path.basename(slide_path))[0]
-        viz_dir = os.path.join(save_coords_dir, "visualization")
-        viz_path = os.path.join(viz_dir, f"{slide_name}.jpg")
-        if os.path.exists(viz_path):
-            print(f"[{idx}/{total}] [SKIP] {slide_path} -> {viz_path}")
+        coords_path = os.path.join(save_coords_dir, "patches", f"{slide_name}_patches.h5")
+        patches_root = os.path.join(
+            save_coords_dir,
+            "patches_webdataset" if args.save_patches_type == "tar" else "patches_jpg",
+        )
+        if args.save_patches_type == "tar":
+            patches_done = len(glob(os.path.join(patches_root, slide_name, "*.tar"))) > 0
+        elif args.save_patches_type == "jpg":
+            if os.path.exists(coords_path):
+                _, coords = read_coords(coords_path)
+                expected = len(coords)
+                patches_done = len(glob(os.path.join(patches_root, slide_name, "*.jpg"))) == expected
+            else:
+                patches_done = False
+        else:
+            patches_done = True
+        if os.path.exists(coords_path) and patches_done:
+            print(f"[{idx}/{total}] [SKIP] {slide_path} -> {coords_path}")
             continue
         print(f"[{idx}/{total}] {slide_path}")
 
@@ -122,6 +137,7 @@ def main():
         )
 
         ##### Step 4: Visualize the tissue coordinates (saved in JPG format) #####
+        viz_dir = os.path.join(save_coords_dir, "visualization")
         viz_path = slide.visualize_coords(coords_path, viz_dir)
         print(f"[{idx}/{total}] coords: {coords_path}, viz: {viz_path}")
         print(f"[{idx}/{total}] done -> {result}")

@@ -68,9 +68,13 @@ class WSIPatcher:
         if custom_coords is None:
             coords = self._build_grid()
         else:
-            if round(custom_coords[0][0]) != custom_coords[0][0]:
+            coords = np.asarray(custom_coords)
+            if coords.size == 0:
+                coords = coords.reshape(0, 2)
+            if coords.ndim != 2 or coords.shape[1] != 2:
                 raise ValueError("custom_coords must be a (N, 2) array of int")
-            coords = custom_coords
+            if coords.size > 0 and not np.all(np.equal(np.round(coords), coords)):
+                raise ValueError("custom_coords must be a (N, 2) array of int")
         if self.mask is not None:
             self.valid_patches_nb, self.valid_coords = self._compute_masked(coords, threshold)
         else:
