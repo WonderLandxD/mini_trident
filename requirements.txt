@@ -1,0 +1,14 @@
+torch
+torchvision
+segmentation-models-pytorch
+huggingface-hub
+openslide-python
+pillow
+numpy
+pandas
+geopandas
+shapely
+opencv-python
+tqdm
+h5py
+webdataset

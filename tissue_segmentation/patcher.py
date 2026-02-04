@@ -1,0 +1,252 @@
+from __future__ import annotations
+
+from typing import Any, Optional, Tuple
+
+import cv2
+import geopandas as gpd
+import numpy as np
+from shapely import Polygon
+from PIL import Image
+
+
+class WSIPatcher:
+    """
+    Minimal patch iterator used for tissue segmentation.
+    It builds a grid of patch coordinates at the requested pixel size and
+    streams patches straight from the WSI backend.
+    """
+
+    def __init__(
+        self,
+        wsi: Any,
+        patch_size: int,
+        src_pixel_size: Optional[float] = None,
+        dst_pixel_size: Optional[float] = None,
+        src_mag: Optional[int] = None,
+        dst_mag: Optional[int] = None,
+        overlap: int = 0,
+        mask: Optional[gpd.GeoDataFrame] = None,
+        coords_only: bool = False,
+        custom_coords: Optional[Any] = None,
+        threshold: float = 0.0,
+        pil: bool = False,
+    ):
+        self.wsi = wsi
+        self.overlap = overlap
+        self.width, self.height = self.wsi.get_dimensions()
+        self.patch_size_target = patch_size
+        self.mask = mask
+        self.i = 0
+        self.coords_only = coords_only
+        self.pil = pil
+        self.dst_mag = dst_mag
+        self.custom_coords = custom_coords
+
+        if src_pixel_size is not None:
+            self.src_pixel_size = src_pixel_size
+        elif src_mag is not None:
+            self.src_pixel_size = 10 / src_mag
+        else:
+            self.src_pixel_size = self.wsi.mpp
+
+        if self.src_pixel_size is None:
+            raise ValueError("Source pixel size (mpp) is required to patch the slide.")
+
+        if dst_pixel_size is not None:
+            self.dst_pixel_size = dst_pixel_size
+        elif dst_mag is not None:
+            self.dst_pixel_size = 10 / dst_mag
+        else:
+            self.dst_pixel_size = self.src_pixel_size
+
+        self.downsample = self.dst_pixel_size / self.src_pixel_size
+        self.patch_size_src = round(patch_size * self.downsample)
+        self.overlap_src = round(overlap * self.downsample)
+
+        self.level, self.patch_size_level, self.overlap_level = self._prepare()
+
+        if custom_coords is None:
+            coords = self._build_grid()
+        else:
+            if round(custom_coords[0][0]) != custom_coords[0][0]:
+                raise ValueError("custom_coords must be a (N, 2) array of int")
+            coords = custom_coords
+        if self.mask is not None:
+            self.valid_patches_nb, self.valid_coords = self._compute_masked(coords, threshold)
+        else:
+            self.valid_patches_nb, self.valid_coords = len(coords), coords
+
+    def _build_grid(self):
+        col_rows = np.array([[col, row] for col in range(self._compute_cols()) for row in range(self._compute_rows())])
+        return np.array([self._colrow_to_xy(xy[0], xy[1]) for xy in col_rows])
+
+    def _colrow_to_xy(self, col, row):
+        x = col * (self.patch_size_src - self.overlap_src)
+        y = row * (self.patch_size_src - self.overlap_src)
+        return (x, y)
+
+    def _compute_masked(self, coords, threshold, simplify_shape: bool = True):
+        if simplify_shape:
+            mask = self.mask.simplify(tolerance=self.patch_size_target / 4, preserve_topology=True)
+        else:
+            mask = self.mask
+
+        bounding_boxes = mask.geometry.bounds
+        bbox_masks = []
+        for _, bbox in bounding_boxes.iterrows():
+            bbox_mask = (
+                (coords[:, 0] >= bbox["minx"] - self.patch_size_src)
+                & (coords[:, 0] <= bbox["maxx"] + self.patch_size_src)
+                & (coords[:, 1] >= bbox["miny"] - self.patch_size_src)
+                & (coords[:, 1] <= bbox["maxy"] + self.patch_size_src)
+            )
+            bbox_masks.append(bbox_mask)
+
+        bbox_mask = np.vstack(bbox_masks).any(axis=0) if len(bbox_masks) > 0 else np.zeros(len(coords), dtype=bool)
+        union_mask = mask.union_all()
+
+        squares = [
+            Polygon(
+                [
+                    (xy[0], xy[1]),
+                    (xy[0] + self.patch_size_src, xy[1]),
+                    (xy[0] + self.patch_size_src, xy[1] + self.patch_size_src),
+                    (xy[0], xy[1] + self.patch_size_src),
+                ]
+            )
+            for xy in coords[bbox_mask]
+        ]
+        if threshold == 0:
+            valid_mask = gpd.GeoSeries(squares).intersects(union_mask).values
+        else:
+            gdf = gpd.GeoSeries(squares)
+            areas = gdf.area
+            valid_mask = gdf.intersection(union_mask).area >= threshold * areas
+
+        full_mask = bbox_mask
+        full_mask[bbox_mask] &= valid_mask
+
+        valid_patches_nb = full_mask.sum()
+        valid_coords = coords[full_mask]
+        return valid_patches_nb, valid_coords
+
+    def __len__(self):
+        return self.valid_patches_nb
+
+    def __iter__(self):
+        self.i = 0
+        return self
+
+    def __next__(self):
+        if self.i >= self.valid_patches_nb:
+            raise StopIteration
+        x = self.__getitem__(self.i)
+        self.i += 1
+        return x
+
+    def __getitem__(self, index):
+        if 0 <= index < len(self):
+            xy = self.valid_coords[index]
+            x, y = xy[0], xy[1]
+            if self.coords_only:
+                return x, y
+            tile, x, y = self.get_tile_xy(x, y)
+            return tile, x, y
+        raise IndexError("Index out of range")
+
+    def _prepare(self):
+        level, _ = self.wsi.get_best_level_and_custom_downsample(self.downsample, tolerance=0.1)
+        level_downsample = int(self.wsi.level_downsamples[level])
+        patch_size_level = round(self.patch_size_src / level_downsample)
+        overlap_level = round(self.overlap_src / level_downsample)
+        return level, patch_size_level, overlap_level
+
+    def get_tile_xy(self, x: int, y: int) -> Tuple[np.ndarray, int, int]:
+        tile = self.wsi.read_region(
+            location=(x, y),
+            level=self.level,
+            size=(self.patch_size_level, self.patch_size_level),
+            read_as="pil" if self.pil else "numpy",
+        )
+
+        if self.patch_size_target is not None:
+            if self.pil:
+                tile = tile.resize((self.patch_size_target, self.patch_size_target))
+            else:
+                tile = cv2.resize(tile, (self.patch_size_target, self.patch_size_target))[:, :, :3]
+
+        assert x < self.width and y < self.height
+        return tile, x, y
+
+    def get_tile(self, col: int, row: int) -> Tuple[np.ndarray, int, int]:
+        """ Get tile at position (column, row). """
+        if self.custom_coords is not None:
+            raise ValueError("Can't use get_tile as 'custom_coords' was passed to the constructor")
+        x, y = self._colrow_to_xy(col, row)
+        return self.get_tile_xy(x, y)
+
+    def _compute_cols(self) -> int:
+        col = 0
+        x, _ = self._colrow_to_xy(col, 0)
+        while x < self.width:
+            col += 1
+            x, _ = self._colrow_to_xy(col, 0)
+        return col
+
+    def _compute_rows(self) -> int:
+        row = 0
+        _, y = self._colrow_to_xy(0, row)
+        while y < self.height:
+            row += 1
+            _, y = self._colrow_to_xy(0, row)
+        return row
+
+    def __repr__(self) -> str:
+        patch_mpp_mag = f"{self.dst_mag}x" if self.dst_mag is not None else f"{self.dst_pixel_size}um/px"
+        return f"<patch={self.patch_size_target}, overlap={self.overlap} @ {patch_mpp_mag}>"
+
+    def visualize(self) -> Image.Image:
+        """
+        Overlay patch coordinates onto a scaled thumbnail of the WSI.
+        """
+        max_dimension = 1000
+        if self.width > self.height:
+            thumbnail_width = max_dimension
+            thumbnail_height = int(thumbnail_width * self.height / self.width)
+        else:
+            thumbnail_height = max_dimension
+            thumbnail_width = int(thumbnail_height * self.width / self.height)
+
+        downsample_factor = self.width / thumbnail_width
+        thumbnail_patch_size = max(1, int(self.patch_size_src / downsample_factor))
+
+        canvas = np.array(self.wsi.get_thumbnail((thumbnail_width, thumbnail_height))).astype(np.uint8)
+
+        tmp_coords_only = self.coords_only
+        self.coords_only = True
+        for (x, y) in self:
+            x, y = int(x / downsample_factor), int(y / downsample_factor)
+            thickness = max(1, thumbnail_patch_size // 10)
+            canvas = cv2.rectangle(
+                canvas,
+                (x, y),
+                (x + thumbnail_patch_size, y + thumbnail_patch_size),
+                (255, 0, 0),
+                thickness,
+            )
+        self.coords_only = tmp_coords_only
+
+        text_area_height = 130
+        text_x_offset = int(thumbnail_width * 0.03)
+        text_y_spacing = 25
+
+        canvas[:text_area_height, :300] = (canvas[:text_area_height, :300] * 0.5).astype(np.uint8)
+
+        patch_mpp_mag = f"{self.dst_mag}x" if self.dst_mag is not None else f"{self.dst_pixel_size}um/px"
+
+        cv2.putText(canvas, f'{len(self)} patches', (text_x_offset, text_y_spacing), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 1)
+        cv2.putText(canvas, f'width={self.width}, height={self.height}', (text_x_offset, text_y_spacing * 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(canvas, f'slide mpp={self.wsi.mpp}, slide mag={self.wsi.mag}', (text_x_offset, text_y_spacing * 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(canvas, f'patch={self.patch_size_target} w. overlap={self.overlap} @ target mag={self.dst_mag}x', (text_x_offset, text_y_spacing * 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        return Image.fromarray(canvas)
