@@ -1,6 +1,6 @@
 # mini_trident
 
-A minimal version of **[Tident](https://github.com/mahmoodlab/TRIDENT)**. This project focuses on tissue segmentation and patch extraction, removing other components to keep the codebase clean and easy to use.
+A minimal version of **[Tident](https://github.com/mahmoodlab/TRIDENT)**. This project focuses on tissue segmentation and patch extraction from Whole Slide Images (WSIs), removing other components to keep the codebase clean and easy to use.
 
 ## Usage
 
