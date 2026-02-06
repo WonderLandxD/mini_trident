@@ -176,6 +176,7 @@ def main():
         coords_attrs, coords = read_coords(coords_path)
         coords_to_keep = [tuple(map(int, xy)) for xy in coords]
         patch_size = int(coords_attrs.get("patch_size", args.patch_size))
+        patch_size_lv0 = int(coords_attrs.get("patch_size_level0", patch_size))
         level0_mag = int(coords_attrs.get("level0_magnification", slide.mag))
         target_mag = int(coords_attrs.get("target_magnification", args.mag))
         overlap = int(coords_attrs.get("overlap", args.overlap))
@@ -227,6 +228,7 @@ def main():
                 "feats": feats_tensor,
                 "coords": coords_tensor,
                 "model_name": args.encoder,
+                "patch_size_level0": patch_size_lv0,
             },
             features_path,
         )
