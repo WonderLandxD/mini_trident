@@ -30,7 +30,10 @@ class Virchow_2(nn.Module):
 
     def forward(self, x):  # x: tensor of shape (B, C, H, W)
         output = self.backbone(x)
-        return output
+        class_token = output[:, 0]    # size: 1 x 1280
+        patch_tokens = output[:, 5:]  # size: 1 x 256 x 1280, tokens 1-4 are register tokens so we ignore those
+        embedding = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)  # size: 1 x 2560
+        return embedding
 
     def get_tokens(self, x):  # x: tensor of shape (B, C, H, W)
         tokens = self.backbone.forward_features(x)
