@@ -9,7 +9,7 @@ import geopandas as gpd
 import numpy as np
 import openslide
 import torch
-from PIL import Image
+from PIL import Image, PngImagePlugin
 from torch.utils.data import DataLoader
 
 from .io_utils import (
@@ -24,6 +24,7 @@ from .patcher import WSIPatcher
 from .patcher_dataset import WSIPatcherDataset
 
 ReadMode = Literal["pil", "numpy"]
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif"}
 
 
 class OpenSlideWSI:
@@ -401,6 +402,84 @@ class OpenSlideWSI:
         return out_fname
 
 
+class ImageWSI(OpenSlideWSI):
+    """
+    Minimal WSI wrapper for standard image formats using PIL.
+    """
+
+    def __init__(
+        self,
+        slide_path: str,
+        tissue_seg_path: Optional[str] = None,
+        custom_mpp_keys: Optional[List[str]] = None,
+        mpp: Optional[float] = None,
+        max_workers: Optional[int] = None,
+    ):
+        if mpp is None:
+            raise ValueError(
+                "Missing required argument `mpp`. Standard image formats do not contain microns-per-pixel "
+                "information, so you must specify it manually."
+            )
+
+        PngImagePlugin.MAX_TEXT_CHUNK = 2**30
+        PngImagePlugin.MAX_TEXT_MEMORY = 2**30
+        PngImagePlugin.MAX_IMAGE_PIXELS = None
+        Image.MAX_IMAGE_PIXELS = None  # allow large images (avoid DecompressionBombError)
+
+        self.slide_path = slide_path
+        self.name, self.ext = os.path.splitext(os.path.basename(slide_path))
+        self.custom_mpp_keys = custom_mpp_keys
+        self.max_workers = max_workers
+
+        self.img = Image.open(self.slide_path).convert("RGB")
+        self.dimensions = self.img.size
+        self.width, self.height = self.dimensions
+        self.level_count = 1
+        self.level_downsamples = [1.0]
+        self.level_dimensions = [self.dimensions]
+        self.properties = None
+        self.mpp = mpp
+        self.mag = self._fetch_magnification(custom_mpp_keys)
+
+        self.gdf_contours = None
+        self.tissue_seg_path = None
+        if tissue_seg_path is not None:
+            self.gdf_contours = gpd.read_file(tissue_seg_path)
+            self.tissue_seg_path = tissue_seg_path
+
+    def _fetch_mpp(self, custom_mpp_keys: Optional[List[str]] = None) -> float:
+        if self.mpp is None:
+            raise ValueError(
+                f"Missing required argument `mpp` for image file: '{self.slide_path}'."
+            )
+        return self.mpp
+
+    def read_region(
+        self, location: Tuple[int, int], level: int, size: Tuple[int, int], read_as: ReadMode = "pil"
+    ):
+        if level != 0:
+            raise ValueError("ImageWSI only supports reading at level=0 (no pyramid levels).")
+        region = self.img.crop(
+            (location[0], location[1], location[0] + size[0], location[1] + size[1])
+        ).convert("RGB")
+        if read_as == "pil":
+            return region
+        if read_as == "numpy":
+            return np.array(region)
+        raise ValueError(f"Invalid `read_as` value: {read_as}. Must be 'pil' or 'numpy'.")
+
+    def get_dimensions(self) -> Tuple[int, int]:
+        return self.dimensions
+
+    def get_thumbnail(self, size: tuple[int, int]) -> Image.Image:
+        img = self.img.copy()
+        img.thumbnail(size)
+        return img
+
+    def get_best_level_and_custom_downsample(self, downsample: float, tolerance: float = 0.01) -> Tuple[int, float]:
+        return 0, 1.0
+
+
 def _visualize_coords_impl(wsi_obj: Any, coords_path: str, save_patch_viz: str) -> str:
     coords_attrs, coords = read_coords(coords_path)
     patch_size = coords_attrs.get("patch_size", None)
@@ -432,7 +511,12 @@ def load_wsi(slide_path: str, **kwargs) -> Union[OpenSlideWSI, "SDPCWSI"]:
     ext = os.path.splitext(slide_path)[1].lower()
     if ext == ".sdpc":
         return SDPCWSI(slide_path=slide_path, **kwargs)
-    return OpenSlideWSI(slide_path=slide_path, **kwargs)
+    try:
+        return OpenSlideWSI(slide_path=slide_path, **kwargs)
+    except Exception:
+        if ext in IMAGE_EXTS:
+            return ImageWSI(slide_path=slide_path, **kwargs)
+        raise
 
 
 class SDPCWSI(OpenSlideWSI):

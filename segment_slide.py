@@ -27,6 +27,8 @@ def parse_args():
                         help='Run penmark-only cleanup (overridden if --remove_artifacts is set).')
     parser.add_argument('--custom_mpp_keys', type=str, nargs='+', default=None,
                         help='Custom keys used to store the resolution as MPP in slide metadata.')
+    parser.add_argument('--mpp', type=float, default=None,
+                        help='Override MPP (microns per pixel), e.g. 0.25 for 40x, 0.5 for 20x. Overrides metadata/custom_mpp_keys.')
     parser.add_argument('--overlap', type=int, default=0,
                         help='Absolute overlap for patching in pixels (kept for CLI parity).')
     parser.add_argument('--batch_size', type=int, default=16,
@@ -67,7 +69,7 @@ def main():
         print(f"[SKIP] Outputs exist: {coords_path}")
         return
 
-    slide = load_wsi(slide_path=args.slide_path, custom_mpp_keys=args.custom_mpp_keys)
+    slide = load_wsi(slide_path=args.slide_path, custom_mpp_keys=args.custom_mpp_keys, mpp=args.mpp)
 
     ##### Step 1: Segment the tissue with the segmentation model (saved in GeoJSON format) #####
     segmentation_model = segmentation_model_factory(

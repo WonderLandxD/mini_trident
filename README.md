@@ -2,6 +2,8 @@
 
 A minimal version of **[Tident](https://github.com/mahmoodlab/TRIDENT)**. This project focuses on tissue segmentation and patch extraction from Whole Slide Images (WSIs), removing other components to keep the codebase clean and easy to use.
 
+**Supported inputs:** OpenSlide-backed formats (.svs, .tif, etc.), `.sdpc`, and standard images (.png, .jpg, .jpeg, .bmp, .webp, .tif). For standard images or when slide metadata has no MPP, pass `--mpp` (e.g. `--mpp 0.5` for 20×).
+
 ## Usage
 
 #### 1. Single slide: `segment_slide.py`
@@ -21,10 +23,11 @@ python segment_slide.py \
   --remove_artifacts \
   --remove_penmarks \
   --save_patches_type tar
+# For PNG/JPEG or when slide metadata lacks MPP, add: --mpp 0.5
 ```
 
 **Key Arguments:**
-- `--slide_path`: Path to the WSI file (.svs, .tif, etc.)
+- `--slide_path`: Path to the WSI file (.svs, .tif, etc.) or standard image (.png, .jpg, etc.; requires `--mpp`)
 - `--job_dir`: Output directory for all results
 - `--segmenter`: Choose `hest` or `grandqc` (default: `grandqc`)
 - `--seg_conf_thresh`: Confidence threshold (default: 0.9, try 0.5 for more tissue)
@@ -32,6 +35,8 @@ python segment_slide.py \
 - `--mag`: Magnification level (5, 10, 20, or 40)
 - `--patch_size`: Patch size in pixels
 - `--overlap`: Overlap between patches in pixels
+- `--mpp`: Override MPP in µm/px (e.g. `0.25` for 40×, `0.5` for 20×). Use when metadata is missing or for PNG/JPEG images.
+- `--custom_mpp_keys`: Extra metadata keys to try when reading MPP from slide properties.
 - `--save_patches_type`: `tar`, `jpg`, or `none` (tar: WebDataset tar file, jpg: individual JPEG patches, none: no patches)
 
 #### 2. Single slide + features: `segment_slide_and_extract_patch_features.py`
@@ -82,7 +87,7 @@ python list_segment_slide.py \
   --verbose
 ```
 
-This script processes slides sequentially. It will skip a slide only if the coords HDF5 exists and the requested patch outputs are complete (tar exists, jpg count matches coords, or `none`).
+This script processes slides sequentially. It will skip a slide only if the coords HDF5 exists and the requested patch outputs are complete (tar exists, jpg count matches coords, or `none`). Use `--mpp 0.5` (or another value) when processing standard images or slides without MPP in metadata.
 
 #### 5. List processing + features: `list_segment_slide_and_extract_patch_features.py`
 
