@@ -7,6 +7,7 @@ job_dir="" # directory to store outputs
 gpus=(0 1 2 3) # GPU ids
 splits=4  # number of splits, which is the same as the number of GPUs. 
 save_patches_type=tar # type of patches to save, `tar` or `jpg` or `none` (no patches)
+mag=20 # magnification level (5, 10, 20, or 40)
 
 
 ##### split the list of slides into multiple parts #####
@@ -40,8 +41,8 @@ for i in "${!parts[@]}"; do
   part="${parts[$i]}"
   gpu="${gpus[$((i % ${#gpus[@]}))]}"
   session="segment_${i}_gpu${gpu}"
-  cmd="cd \"$root_dir\"; python list_segment_slide.py --list_json \"$part\" --job_dir \"$job_dir\" --gpu $gpu --save_patches_type \"$save_patches_type\" --verbose"
+  cmd="cd \"$root_dir\"; python list_segment_slide.py --list_json \"$part\" --job_dir \"$job_dir\" --gpu $gpu --mag $mag --save_patches_type \"$save_patches_type\" --verbose"
   tmux new-session -d -s "$session"
   tmux send-keys -t "$session" "$cmd" C-m
-  echo "tmux: $session -> GPU $gpu, save_patches_type: $save_patches_type"
+  echo "tmux: $session -> GPU $gpu, save_patches_type: $save_patches_type, mag: $mag"
 done
