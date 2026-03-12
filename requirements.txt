@@ -12,3 +12,9 @@ opencv-python
 tqdm
 h5py
 webdataset
+
+# Encoder / TITAN & CONCH (pinned for compatibility)
+timm==1.0.3
+einops==0.6.1
+einops-exts==0.0.4
+transformers==4.46.0
