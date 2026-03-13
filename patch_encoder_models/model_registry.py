@@ -20,6 +20,7 @@ from .uni_models.uni_v1 import UNI_v1
 from .uni_models.uni_v2 import UNI_v2
 from .virchow_models.virchow_1 import Virchow_1
 from .virchow_models.virchow_2 import Virchow_2
+from .keep_models.keep import KEEP
 
 MODEL_REGISTRY: Dict[str, Type] = {
     "conch_v1": Conch_v1,
@@ -40,6 +41,7 @@ MODEL_REGISTRY: Dict[str, Type] = {
     "uni_v2": UNI_v2,
     "virchow_1": Virchow_1,
     "virchow_2": Virchow_2,
+    "keep": KEEP,
 }
 
 
