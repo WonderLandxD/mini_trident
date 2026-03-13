@@ -13,6 +13,7 @@ tqdm
 h5py
 webdataset
 timm_ctp
+fairscale
 
 # Encoder / TITAN & CONCH (pinned for compatibility)
 timm==1.0.3
