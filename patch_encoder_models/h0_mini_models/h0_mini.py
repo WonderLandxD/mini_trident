@@ -30,13 +30,15 @@ class H0_Mini(nn.Module):
         )
 
     def forward(self, x):  # x: tensor of shape (B, C, H, W)
-        output = self.backbone(x)
+        tokens = self.backbone(x)
+        output = tokens[:, 0]
         return output
 
     def get_tokens(self, x):  # x: tensor of shape (B, C, H, W)
-        tokens = self.backbone.forward_features(x)
+        tokens = self.backbone(x)
+        num_prefix_tokens = self.backbone.num_prefix_tokens
         return {
             "cls": tokens[:, 0],
-            "patch": tokens[:, 5:],
-            "reg": tokens[:, 1:5],
+            "patch": tokens[:, num_prefix_tokens :],
+            "reg": tokens[:, 1: num_prefix_tokens],
         }
