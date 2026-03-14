@@ -15,7 +15,7 @@ class MUSK(nn.Module):
 
         from timm.models import create_model
         from timm.data.constants import IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
-        from musk_code import utils, modeling
+        from .musk_code import utils, modeling
         import torchvision
 
         model = create_model("musk_large_patch16_384")
