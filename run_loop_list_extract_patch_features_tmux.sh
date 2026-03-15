@@ -2,11 +2,13 @@
 set -euo pipefail
 
 ##### parameters #####
-list_json="" # path to the JSON list of slides
-job_dir="" # directory to store outputs
+list_json="/private/yhhe/mini_trident/bracs_wsi_list.json" # path to the JSON list of slides
+job_dir="/private/yhhe/mini_trident/mini_trident_datasets/bracs" # directory to store outputs
+dataset_name= $list_json.split("/")[-1].split("_wsi_list.json")[0]
 gpus=(0 1 2 3 4 5 6) # GPU ids
 splits=7  # number of splits, which is the same as the number of GPUs.
-encoders=(musk) # patch encoder names, loop over each in one tmux # conch_v1 conch_v1_5 ctranspath gpfm h_optimus_0 h0_mini keep lunit_p16 pathorchestra plip prov_gigapath uni_v1 uni_v2 virchow_1 virchow_2
+# encoders=(conch_v1 conch_v1_5 ctranspath gpfm h_optimus_0 h0_mini keep lunit_p16 mstar musk pathorchestra plip prov_gigapath uni_v1 uni_v2 virchow_1 virchow_2) # patch encoder names, loop over each in one tmux # 
+encoders=(h0_mini keep lunit_p16 mstar musk uni_v2)
 precision="fp16" # fp32 | fp16 | bf16
 batch_size=64 # batch size for feature extraction
 feat_num_workers=10 # dataloader workers for features
@@ -42,7 +44,7 @@ shopt -u nullglob
 for i in "${!parts[@]}"; do
   part="${parts[$i]}"
   gpu="${gpus[$((i % ${#gpus[@]}))]}"
-  session="extract_features_${i}_gpu${gpu}"
+  session="${dataset_name}_extract_features_${i}_gpu${gpu}"
   tmux new-session -d -s "$session"
   enc_cmds=""
   for enc in "${encoders[@]}"; do
