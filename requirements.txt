@@ -14,6 +14,9 @@ h5py
 webdataset
 timm_ctp
 fairscale
+h5py
+geopandas
+segmentation_models_pytorch
 
 # Encoder / TITAN & CONCH (pinned for compatibility)
 timm==1.0.3
