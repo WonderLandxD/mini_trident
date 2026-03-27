@@ -2,13 +2,13 @@
 set -euo pipefail
 
 ##### parameters #####
-list_json="" # path to the JSON list of slides
-job_dir="" # directory to store outputs
-gpus=(0 1 2 3) # GPU ids
-splits=4  # number of splits, which is the same as the number of GPUs. 
+list_json="/private/yhhe/mini_trident/kidrare_wsi_list.json" # path to the JSON list of slides
+job_dir="/private/yhhe/mini_trident/mini_trident_datasets/kidrare" # directory to store outputs
+gpus=(0 1 2 3 4 5 6) # GPU ids
+splits=7  # number of splits, which is the same as the number of GPUs. 
 save_patches_type=tar # type of patches to save, `tar` or `jpg` or `none` (no patches)
 mag=20 # magnification level (5, 10, 20, or 40)
-encoders=(uni_v2) # patch encoder names, loop over each in one tmux
+encoders=(conch_v1_5) # patch encoder names, loop over each in one tmux
 precision="fp16" # fp32 | fp16 | bf16
 feat_num_workers=4 # dataloader workers for features
 

@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ##### parameters #####
-list_json="/private/yhhe/mini_trident/kidrare_wsi_list.json" # path to the JSON list of slides
-job_dir="/private/yhhe/mini_trident/mini_trident_datasets/kidrare" # directory to store outputs
-dataset_name=kidrare
+list_json="/private/yhhe/mini_trident/ebrains_wsi_list.json" # path to the JSON list of slides
+job_dir="/private/yhhe/mini_trident/mini_trident_datasets/ebrains" # directory to store outputs
+dataset_name=ebrains
 
 gpus=(0 1 2 3 4 5 6) # GPU ids
 splits=7  # number of splits, which is the same as the number of GPUs.
 # encoders=(conch_v1 conch_v1_5 ctranspath gpfm h_optimus_0 h0_mini keep lunit_p16 mstar musk pathorchestra plip prov_gigapath uni_v1 uni_v2 virchow_1 virchow_2) # patch encoder names, loop over each in one tmux # 
-encoders=(conch_v1 conch_v1_5 ctranspath gpfm h_optimus_0 h0_mini keep lunit_p16 mstar pathorchestra plip prov_gigapath)
+encoders=(conch_v1 conch_v1_5 ctranspath gpfm h_optimus_0 h0_mini keep lunit_p16 mstar pathorchestra plip prov_gigapath) # musk
 # encoders=(uni_v1 uni_v2 virchow_1 virchow_2)
 
 
