@@ -51,6 +51,13 @@ def parse_args():
                         help='Save patches as tar, jpg, or none.')
     parser.add_argument('--min_tissue_proportion', type=float, default=0.9,
                         help='Minimum tissue proportion for patch extraction. If the tissue proportion is less than this value, the patch will not be saved. Between 0. and 1.0. Default is 0.9.')
+    parser.add_argument(
+        "--coords_mode",
+        type=str,
+        default="tissue",
+        choices=["tissue", "full"],
+        help="How to generate patch coordinates. 'tissue' uses tissue mask; 'full' tiles the entire slide (keeps all patches).",
+    )
     return parser.parse_args()
 
 
@@ -84,161 +91,167 @@ def main():
     for idx, item in enumerate(slides, start=1):
         slide_path = item["slide_path"]
         label = item.get("label")
-        job_dir = os.path.join(args.job_dir, label) if label else args.job_dir
-        os.makedirs(job_dir, exist_ok=True)
-        save_coords_dir = os.path.join(
-            job_dir,
-            f"{args.mag}x_{args.patch_size}px_{args.overlap}px_overlap"
-        )
-        slide_name = os.path.splitext(os.path.basename(slide_path))[0]
-        viz_dir = os.path.join(save_coords_dir, "visualization")
-        coords_path = os.path.join(save_coords_dir, "patches", f"{slide_name}_patches.h5")
-        features_dir = os.path.join(save_coords_dir, "patch_features", args.encoder)
-        features_path = os.path.join(features_dir, f"{slide_name}.pth")
-        if os.path.exists(features_path):
-            print(f"[{idx}/{total}] [SKIP] {slide_path} -> {features_path}")
-            continue
-
-        patches_root = os.path.join(
-            save_coords_dir,
-            "patches_webdataset" if args.save_patches_type == "tar" else "patches_jpg",
-        )
-        if args.save_patches_type == "tar":
-            patches_done = len(glob(os.path.join(patches_root, slide_name, "*.tar"))) > 0
-        elif args.save_patches_type == "jpg":
-            if os.path.exists(coords_path):
-                _, coords = read_coords(coords_path)
-                patches_done = len(glob(os.path.join(patches_root, slide_name, "*.jpg"))) == len(coords)
-            else:
-                patches_done = False
-        else:
-            patches_done = True
-        print(f"[{idx}/{total}] {slide_path}")
-
-        slide = load_wsi(slide_path=slide_path, custom_mpp_keys=args.custom_mpp_keys, mpp=args.mpp)
-
-        result = "skipped"
-        if not os.path.exists(coords_path):
-            ##### Step 1: Segment the tissue with the segmentation model (saved in GeoJSON format) #####
-            result = slide.segment_tissue(
-                segmentation_model=segmentation_model,
-                target_mag=segmentation_model.target_mag,
-                job_dir=job_dir,
-                device=f"cuda:{args.gpu}",
-                holes_are_tissue=not args.remove_holes,
-                batch_size=args.batch_size,
-                verbose=args.verbose,
+        try:
+            job_dir = os.path.join(args.job_dir, label) if label else args.job_dir
+            os.makedirs(job_dir, exist_ok=True)
+            save_coords_dir = os.path.join(
+                job_dir,
+                f"{args.mag}x_{args.patch_size}px_{args.overlap}px_overlap"
             )
+            slide_name = os.path.splitext(os.path.basename(slide_path))[0]
+            viz_dir = os.path.join(save_coords_dir, "visualization")
+            coords_path = os.path.join(save_coords_dir, "patches", f"{slide_name}_patches.h5")
+            features_dir = os.path.join(save_coords_dir, "patch_features", args.encoder)
+            features_path = os.path.join(features_dir, f"{slide_name}.pth")
+            if os.path.exists(features_path):
+                print(f"[{idx}/{total}] [SKIP] {slide_path} -> {features_path}")
+                continue
 
-            if artifact_remover_model is not None:
-                result = slide.segment_tissue(
-                    segmentation_model=artifact_remover_model,
-                    target_mag=artifact_remover_model.target_mag,
-                    holes_are_tissue=False,
-                    job_dir=job_dir
+            patches_root = os.path.join(
+                save_coords_dir,
+                "patches_webdataset" if args.save_patches_type == "tar" else "patches_jpg",
+            )
+            if args.save_patches_type == "tar":
+                patches_done = len(glob(os.path.join(patches_root, slide_name, "*.tar"))) > 0
+            elif args.save_patches_type == "jpg":
+                if os.path.exists(coords_path):
+                    _, coords = read_coords(coords_path)
+                    patches_done = len(glob(os.path.join(patches_root, slide_name, "*.jpg"))) == len(coords)
+                else:
+                    patches_done = False
+            else:
+                patches_done = True
+            print(f"[{idx}/{total}] {slide_path}")
+
+            slide = load_wsi(slide_path=slide_path, custom_mpp_keys=args.custom_mpp_keys, mpp=args.mpp)
+
+            result = "skipped"
+            if not os.path.exists(coords_path):
+                if args.coords_mode == "tissue":
+                    ##### Step 1: Segment the tissue with the segmentation model (saved in GeoJSON format) #####
+                    result = slide.segment_tissue(
+                        segmentation_model=segmentation_model,
+                        target_mag=segmentation_model.target_mag,
+                        job_dir=job_dir,
+                        device=f"cuda:{args.gpu}",
+                        holes_are_tissue=not args.remove_holes,
+                        batch_size=args.batch_size,
+                        verbose=args.verbose,
+                    )
+
+                    if artifact_remover_model is not None:
+                        result = slide.segment_tissue(
+                            segmentation_model=artifact_remover_model,
+                            target_mag=artifact_remover_model.target_mag,
+                            holes_are_tissue=False,
+                            job_dir=job_dir
+                        )
+
+                ##### Step 2: Extract the patch coordinates (saved in HDF5 format) #####
+                coords_path = slide.extract_tissue_coords(
+                    target_mag=args.mag,
+                    patch_size=args.patch_size,
+                    save_coords=save_coords_dir,
+                    overlap=args.overlap,
+                    min_tissue_proportion=args.min_tissue_proportion,
+                    use_tissue_mask=(args.coords_mode == "tissue"),
                 )
 
-            ##### Step 2: Extract the tissue coordinates (saved in HDF5 format) #####
-            coords_path = slide.extract_tissue_coords(
-                target_mag=args.mag,
-                patch_size=args.patch_size,
-                save_coords=save_coords_dir,
-                overlap=args.overlap,
-                min_tissue_proportion=args.min_tissue_proportion,
-            )
+                ##### Step 3: Save the tissue tile images (saved in WebDataset or JPG format) #####
+                _, coords = read_coords(coords_path)
+                coords_to_keep = [tuple(map(int, xy)) for xy in coords]
+                slide.save_patches(
+                    coords_to_keep=coords_to_keep,
+                    target_mag=args.mag,
+                    patch_size=args.patch_size,
+                    save_coords=save_coords_dir,
+                    overlap=args.overlap,
+                    min_tissue_proportion=args.min_tissue_proportion,
+                    save_patches_type=args.save_patches_type,
+                    save_patches_verbose=args.verbose,
+                )
+            elif not patches_done and args.save_patches_type != "none":
+                _, coords = read_coords(coords_path)
+                coords_to_keep = [tuple(map(int, xy)) for xy in coords]
+                slide.save_patches(
+                    coords_to_keep=coords_to_keep,
+                    target_mag=args.mag,
+                    patch_size=args.patch_size,
+                    save_coords=save_coords_dir,
+                    overlap=args.overlap,
+                    min_tissue_proportion=args.min_tissue_proportion,
+                    save_patches_type=args.save_patches_type,
+                    save_patches_verbose=args.verbose,
+                )
 
-            ##### Step 3: Save the tissue tile images (saved in WebDataset or JPG format) #####
-            _, coords = read_coords(coords_path)
+            ##### Step 4: Extract patch features (saved in PTH format) #####
+            coords_attrs, coords = read_coords(coords_path)
             coords_to_keep = [tuple(map(int, xy)) for xy in coords]
-            slide.save_patches(
-                coords_to_keep=coords_to_keep,
-                target_mag=args.mag,
-                patch_size=args.patch_size,
-                save_coords=save_coords_dir,
-                overlap=args.overlap,
-                min_tissue_proportion=args.min_tissue_proportion,
-                save_patches_type=args.save_patches_type,
-                save_patches_verbose=args.verbose,
+            patch_size = int(coords_attrs.get("patch_size", args.patch_size))
+            patch_size_lv0 = int(coords_attrs.get("patch_size_level0", patch_size))
+            level0_mag = int(coords_attrs.get("level0_magnification", slide.mag))
+            target_mag = int(coords_attrs.get("target_magnification", args.mag))
+            overlap = int(coords_attrs.get("overlap", args.overlap))
+
+            patcher = WSIPatcher(
+                wsi=slide,
+                patch_size=patch_size,
+                src_mag=level0_mag,
+                dst_mag=target_mag,
+                custom_coords=np.array(coords_to_keep),
+                coords_only=False,
+                overlap=overlap,
+                pil=True,
             )
-        elif not patches_done and args.save_patches_type != "none":
-            _, coords = read_coords(coords_path)
-            coords_to_keep = [tuple(map(int, xy)) for xy in coords]
-            slide.save_patches(
-                coords_to_keep=coords_to_keep,
-                target_mag=args.mag,
-                patch_size=args.patch_size,
-                save_coords=save_coords_dir,
-                overlap=args.overlap,
-                min_tissue_proportion=args.min_tissue_proportion,
-                save_patches_type=args.save_patches_type,
-                save_patches_verbose=args.verbose,
+            dataset = WSIPatcherDataset(patcher, model.img_transform)
+            dataloader = DataLoader(
+                dataset,
+                batch_size=args.batch_size,
+                num_workers=args.feat_num_workers,
+                pin_memory=True,
             )
 
-        ##### Step 4: Extract patch features (saved in PTH format) #####
-        coords_attrs, coords = read_coords(coords_path)
-        coords_to_keep = [tuple(map(int, xy)) for xy in coords]
-        patch_size = int(coords_attrs.get("patch_size", args.patch_size))
-        patch_size_lv0 = int(coords_attrs.get("patch_size_level0", patch_size))
-        level0_mag = int(coords_attrs.get("level0_magnification", slide.mag))
-        target_mag = int(coords_attrs.get("target_magnification", args.mag))
-        overlap = int(coords_attrs.get("overlap", args.overlap))
+            os.makedirs(features_dir, exist_ok=True)
+            feats_list = []
+            total_feats = len(dataset)
+            offset = 0
 
-        patcher = WSIPatcher(
-            wsi=slide,
-            patch_size=patch_size,
-            src_mag=level0_mag,
-            dst_mag=target_mag,
-            custom_coords=np.array(coords_to_keep),
-            coords_only=False,
-            overlap=overlap,
-            pil=True,
-        )
-        dataset = WSIPatcherDataset(patcher, model.img_transform)
-        dataloader = DataLoader(
-            dataset,
-            batch_size=args.batch_size,
-            num_workers=args.feat_num_workers,
-            pin_memory=True,
-        )
+            for batch_idx, (imgs, _) in enumerate(dataloader, start=1):
+                imgs = imgs.to(device, non_blocking=True)
+                device_type = device.type
+                autocast_enabled = device_type == "cuda" and dtype != torch.float32
+                with torch.inference_mode(), torch.autocast(
+                    device_type=device_type, dtype=dtype, enabled=autocast_enabled
+                ):
+                    feats = model(imgs)
+                    if feats.ndim != 2:
+                        raise ValueError(f"Unexpected feature shape: {tuple(feats.shape)}")
+                feats_list.append(feats.float().cpu())
+                offset += feats.shape[0]
+                if args.verbose and (batch_idx == 1 or batch_idx % 50 == 0 or offset == total_feats):
+                    print(f"\r[Feat] {offset}/{total_feats} patches", end="", flush=True)
+            if args.verbose:
+                print()
 
-        os.makedirs(features_dir, exist_ok=True)
-        feats_list = []
-        total_feats = len(dataset)
-        offset = 0
+            feats_tensor = torch.cat(feats_list, dim=0)
+            coords_tensor = torch.tensor(coords_to_keep, dtype=torch.int32)
+            torch.save(
+                {
+                    "feats": feats_tensor,
+                    "coords": coords_tensor,
+                    "model_name": args.encoder,
+                    "patch_size_level0": patch_size_lv0,
+                },
+                features_path,
+            )
 
-        for batch_idx, (imgs, _) in enumerate(dataloader, start=1):
-            imgs = imgs.to(device, non_blocking=True)
-            device_type = device.type
-            autocast_enabled = device_type == "cuda" and dtype != torch.float32
-            with torch.inference_mode(), torch.autocast(
-                device_type=device_type, dtype=dtype, enabled=autocast_enabled
-            ):
-                feats = model(imgs)
-                if feats.ndim != 2:
-                    raise ValueError(f"Unexpected feature shape: {tuple(feats.shape)}")
-            feats_list.append(feats.float().cpu())
-            offset += feats.shape[0]
-            if args.verbose and (batch_idx == 1 or batch_idx % 50 == 0 or offset == total_feats):
-                print(f"\r[Feat] {offset}/{total_feats} patches", end="", flush=True)
-        if args.verbose:
-            print()
-
-        feats_tensor = torch.cat(feats_list, dim=0)
-        coords_tensor = torch.tensor(coords_to_keep, dtype=torch.int32)
-        torch.save(
-            {
-                "feats": feats_tensor,
-                "coords": coords_tensor,
-                "model_name": args.encoder,
-                "patch_size_level0": patch_size_lv0,
-            },
-            features_path,
-        )
-
-        ##### Step 5: Visualize the tissue coordinates (saved in JPG format) #####
-        viz_path = slide.visualize_coords(coords_path, viz_dir)
-        print(f"[{idx}/{total}] coords: {coords_path}, viz: {viz_path}")
-        print(f"[{idx}/{total}] done -> {result}")
+            ##### Step 5: Visualize the tissue coordinates (saved in JPG format) #####
+            viz_path = slide.visualize_coords(coords_path, viz_dir)
+            print(f"[{idx}/{total}] coords: {coords_path}, viz: {viz_path}")
+            print(f"[{idx}/{total}] done -> {result}")
+        except Exception as e:
+            print(f"[{idx}/{total}] [ERROR] {slide_path}: {e}")
+            continue
 
 
 if __name__ == "__main__":

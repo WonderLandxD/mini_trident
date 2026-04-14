@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ##### parameters #####
-list_json="/private/yhhe/mini_trident/kidrare_wsi_list.json" # path to the JSON list of slides
-job_dir="/private/yhhe/mini_trident/mini_trident_datasets/kidrare" # directory to store outputs
+list_json="./xxxxx.json" # path to the JSON list of slides, you should modify this to your own path
+job_dir="./mini_trident_datasets/xxxxx" # directory to store outputs, you should modify this to your own path
 dataset_name=kidrare
 
 gpus=(0 1 2 3 4 5 6) # GPU ids

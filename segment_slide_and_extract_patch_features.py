@@ -50,6 +50,13 @@ def parse_args():
                         help='Save patches as tar, jpg, or none.')
     parser.add_argument('--min_tissue_proportion', type=float, default=0.9,
                         help='Minimum tissue proportion for patch extraction. If the tissue proportion is less than this value, the patch will not be saved. Between 0. and 1.0. Default is 0.9.')
+    parser.add_argument(
+        "--coords_mode",
+        type=str,
+        default="tissue",
+        choices=["tissue", "full"],
+        help="How to generate patch coordinates. 'tissue' uses tissue mask; 'full' tiles the entire slide (keeps all patches).",
+    )
     return parser.parse_args()
 
 
@@ -85,43 +92,45 @@ def main():
     slide = load_wsi(slide_path=args.slide_path, custom_mpp_keys=args.custom_mpp_keys, mpp=args.mpp)
     result = "skipped"
     if not os.path.exists(coords_path):
-        ##### Step 1: Segment the tissue with the segmentation model (saved in GeoJSON format) #####
-        segmentation_model = segmentation_model_factory(
-            model_name=args.segmenter,
-            confidence_thresh=args.seg_conf_thresh,
-        )
-        artifact_remover_model = None
-        if args.remove_artifacts or args.remove_penmarks:
-            artifact_remover_model = segmentation_model_factory(
-                'grandqc_artifact',
-                remove_penmarks_only=args.remove_penmarks and not args.remove_artifacts
+        if args.coords_mode == "tissue":
+            ##### Step 1: Segment the tissue with the segmentation model (saved in GeoJSON format) #####
+            segmentation_model = segmentation_model_factory(
+                model_name=args.segmenter,
+                confidence_thresh=args.seg_conf_thresh,
             )
+            artifact_remover_model = None
+            if args.remove_artifacts or args.remove_penmarks:
+                artifact_remover_model = segmentation_model_factory(
+                    'grandqc_artifact',
+                    remove_penmarks_only=args.remove_penmarks and not args.remove_artifacts
+                )
 
-        result = slide.segment_tissue(
-            segmentation_model=segmentation_model,
-            target_mag=segmentation_model.target_mag,
-            job_dir=args.job_dir,
-            device=f"cuda:{args.gpu}",
-            holes_are_tissue=not args.remove_holes,
-            batch_size=args.batch_size,
-            verbose=args.verbose,
-        )
-
-        if artifact_remover_model is not None:
             result = slide.segment_tissue(
-                segmentation_model=artifact_remover_model,
-                target_mag=artifact_remover_model.target_mag,
-                holes_are_tissue=False,
-                job_dir=args.job_dir
+                segmentation_model=segmentation_model,
+                target_mag=segmentation_model.target_mag,
+                job_dir=args.job_dir,
+                device=f"cuda:{args.gpu}",
+                holes_are_tissue=not args.remove_holes,
+                batch_size=args.batch_size,
+                verbose=args.verbose,
             )
 
-        ##### Step 2: Extract the tissue coordinates (saved in HDF5 format) #####
+            if artifact_remover_model is not None:
+                result = slide.segment_tissue(
+                    segmentation_model=artifact_remover_model,
+                    target_mag=artifact_remover_model.target_mag,
+                    holes_are_tissue=False,
+                    job_dir=args.job_dir
+                )
+
+        ##### Step 2: Extract the patch coordinates (saved in HDF5 format) #####
         coords_path = slide.extract_tissue_coords(
             target_mag=args.mag,
             patch_size=args.patch_size,
             save_coords=save_coords_dir,
             overlap=args.overlap,
             min_tissue_proportion=args.min_tissue_proportion,
+            use_tissue_mask=(args.coords_mode == "tissue"),
         )
 
         ##### Step 3: Save the tissue tile images (saved in WebDataset or JPG format) #####

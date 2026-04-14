@@ -367,16 +367,20 @@ class OpenSlideWSI:
         save_coords: str,
         overlap: int = 0,
         min_tissue_proportion: float = 0.0,
+        use_tissue_mask: bool = True,
     ) -> str:
         """
-        Extract patch coordinates from tissue regions and save them to HDF5.
+        Extract patch coordinates and save them to HDF5.
+
+        By default, coordinates are sampled from tissue regions (requires `self.gdf_contours`).
+        If `use_tissue_mask=False`, coordinates are sampled over the full slide canvas (no tissue mask).
         """
         patcher = WSIPatcher(
             self,
             patch_size=patch_size,
             src_mag=self.mag,
             dst_mag=target_mag,
-            mask=self.gdf_contours if hasattr(self, "gdf_contours") else None,
+            mask=(self.gdf_contours if (use_tissue_mask and hasattr(self, "gdf_contours")) else None),
             coords_only=True,
             overlap=overlap,
             threshold=min_tissue_proportion,

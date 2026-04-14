@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ##### parameters #####
-list_json="" # path to the JSON list of slides
-job_dir="" # directory to store outputs
+list_json="./xxxxx.json" # path to the JSON list of slides, you should modify this to your own path
+job_dir="./mini_trident_datasets/xxxxx" # directory to store outputs, you should modify this to your own path
 gpus=(0 1 2 3 4 5 6) # GPU ids
 splits=7  # number of splits, which is the same as the number of GPUs. 
 encoder="conch_v1_5" # patch encoder name
