@@ -203,6 +203,71 @@ job_dir/
         └── <slide_name>.jpg
 ```
 
+## Patch Encoder
+
+`--encoder` is the **patch feature encoder** used by `*_extract_patch_features*.py`. It is **required** and must be one of the names registered in `patch_encoder_models/model_registry.py`.
+
+- **List available encoders**:
+
+```bash
+python -c "from patch_encoder_models.model_registry import list_models; print('\n'.join(list_models()))"
+```
+
+- **Supported encoder names (current)**: `conch_v1`, `conch_v1_5`, `ctranspath`, `gpfm`, `h0_mini`, `h_optimus_0`, `h_optimus_1`, `keep`, `lunit_p8`, `lunit_p16`, `mstar`, `musk`, `pathorchestra`, `plip`, `prov_gigapath`, `stainnet_small`, `stainnet_base`, `uni_v1`, `uni_v2`, `virchow_1`, `virchow_2`.
+
+- **Add your own encoder**:
+  - Implement a model class that exposes `img_transform` and returns a 2D tensor of shape `Tensor[N, D]` when called on a batch of images.
+  - Register it into `MODEL_REGISTRY` in `patch_encoder_models/model_registry.py` (key is the `--encoder` value).
+  - Minimal example:
+
+```python
+import torch
+import torch.nn as nn
+
+try:
+    from torchvision import transforms
+except ImportError as e:
+    raise ImportError("torchvision is required for this example") from e
+
+
+class MyEncoder(nn.Module):
+    def __init__(self, out_dim: int = 128):
+        super().__init__()
+        self.backbone = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+        self.proj = nn.Linear(64, out_dim)
+
+        # NOTE: img_transform must accept a PIL image and return a torch.Tensor (C,H,W).
+        self.img_transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+            ]
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [N,3,H,W] -> feats: [N,D]
+        x = self.backbone(x).flatten(1)  # [N,64]
+        x = self.proj(x)  # [N,out_dim]
+        return x
+
+
+# 1) Put the class somewhere importable, e.g. patch_encoder_models/custom_models/my_encoder.py
+# 2) Register in patch_encoder_models/model_registry.py:
+#
+#   from .custom_models.my_encoder import MyEncoder
+#   MODEL_REGISTRY["my_encoder"] = MyEncoder
+#
+# Then use:
+#   --encoder my_encoder
+```
+
 ## Patch Features Format
 
 Patch features are stored as `.pth` files with:
